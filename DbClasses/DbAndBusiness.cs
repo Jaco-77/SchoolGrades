@@ -6,7 +6,6 @@ using System.IO;
 using System.Collections.Generic;
 using gamon;
 using System.Windows.Forms;
-using SchoolGrades.DataLayer; 
 
 namespace SchoolGrades.DbClasses
 {
@@ -351,7 +350,7 @@ namespace SchoolGrades.DbClasses
             q.IdQuestion = SafeDb.SafeInt(Row["IdQuestion"]);
             q.IdQuestionType = SafeDb.SafeString(Row["IdQuestionType"]);
             q.IdSchoolSubject = SafeDb.SafeString(Row["IdSchoolSubject"]);
-            q.IdSubject = SafeDb.SafeInt(Row["IdSubject"]);
+            //q.IdSubject = SafeDb.SafeInt(Row["IdSubject"]);
             q.IdTopic = SafeDb.SafeInt(Row["IdTopic"]);
             q.Image = SafeDb.SafeString(Row["Image"]);
             q.Text = SafeDb.SafeString(Row["Text"]);
@@ -1614,6 +1613,7 @@ namespace SchoolGrades.DbClasses
                     " AND Grades.idGradeParent = Parents.idGrade" +
                     " AND (Parents.value = 0 OR Parents.value is NULL)" + 
                     " ORDER BY Grades.timestamp;";
+
                 DataAdapter DAdapt = new SQLiteDataAdapter(query, (SQLiteConnection)conn);
                 DataSet DSet = new DataSet("OpenMicroGrades");
                 DAdapt.Fill(DSet);
@@ -1998,7 +1998,7 @@ namespace SchoolGrades.DbClasses
                 cmd.CommandText = "UPDATE Questions " +
                     "SET idQuestionType='" + SqlVal.SqlString(Question.IdQuestionType) + "' " +
                      ", idSchoolSubject='" + SqlVal.SqlString(Question.IdSchoolSubject) + "' " +
-                     ", idSubject=" + Question.IdSubject + " " +
+                     //", idSubject=" + Question.IdSubject + " " +
                      ", idSchoolSubject='" + Question.IdSchoolSubject + "'" +
                      ", idTopic=" + Question.IdTopic + " " +
                      ", duration=" + Question.Duration + " " +
@@ -2040,8 +2040,9 @@ namespace SchoolGrades.DbClasses
         }
 
         /// <summary>
-        /// gets the questions regarding the topics made to the class that 
-        /// haven't been made to the student yet
+        /// gets the questions regarding the topics taught to the class that 
+        /// haven't been made to the student yet. 
+        /// Includes also the questions tha do not have a topic 
         /// </summary>
         /// <param name="Class"></param>
         /// <param name="Student"></param>
@@ -2054,6 +2055,18 @@ namespace SchoolGrades.DbClasses
         {
             List<Question> lq = new List<Question>();
             string filteredQuestions;
+
+            // first part of the query: selection of the interesting fields in Questions
+            string query = "SELECT Questions.IdQuestion,Questions.text,Questions.idSchoolSubject,Questions.idQuestionType" +
+                ",Questions.weight,Questions.duration,Questions.difficulty,Questions.image,Questions.idTopic" +
+                " FROM Questions";
+            // add the WHERE clauses
+            // if the search string is present, then it must be in the searched field 
+            if (SearchString != "")
+            {
+                query += " WHERE Questions.text LIKE('%" + SqlVal.SqlString(SearchString) + "%')" +
+                    "AND (";
+            }
             if (Subject != null)
                 filteredQuestions = MakeStringForFilteredQuestionsQuery(Tags, Subject.IdSchoolSubject, IdQuestionType,
                     Topic, QueryManyTopics, TagsAnd);
@@ -2088,18 +2101,22 @@ namespace SchoolGrades.DbClasses
                 // PART of the final query that extracts the Ids of the questions already made 
                 questionsTopicsMade = " Questions.idQuestion IN(" + questionsTopicsMade + ")";
             }
-            // first part of the query: selection of the interesting fields in Questions
-            string query = "SELECT Questions.IdQuestion,Questions.text,Questions.idSchoolSubject,Questions.idQuestionType" +
-                ",Questions.weight,Questions.duration,Questions.difficulty,Questions.image,Questions.idTopic" +
-                " FROM Questions";
+
             if (questionsAlreadyMade != "")
             {
                 // take only questions already made 
-                query += " WHERE Questions.idQuestion NOT IN(" + questionsAlreadyMade + ")";
+                if (SearchString == "")
+                {
+                    query += " WHERE Questions.idQuestion NOT IN(" + questionsAlreadyMade + ")";
+                }
+                else
+                {
+                    query += " Questions.idQuestion NOT IN(" + questionsAlreadyMade + ")";
+                }
             }
             if (filteredQuestions != "")
             {
-                if (questionsAlreadyMade != "")
+                if (questionsAlreadyMade != "" || SearchString != "")
                 {
                     query += " AND Questions.idQuestion IN(" + filteredQuestions + ")";
                 }
@@ -2108,17 +2125,10 @@ namespace SchoolGrades.DbClasses
                     query += " WHERE Questions.idQuestion IN(" + filteredQuestions + ")";
                 }
             }
+            query += " OR Questions.idTopic IS NULL OR Questions.idTopic = ''";
             if (SearchString != "")
-            {
-                if (questionsAlreadyMade != "" || filteredQuestions != "")
-                {
-                    query += " AND Questions.text LIKE('%" + SqlVal.SqlString(SearchString) + "%')";
-                }
-                else
-                {
-                    query += " WHERE Questions.text LIKE('%" + SqlVal.SqlString(SearchString) + "%')";
-                }
-            }
+                query += ")"; 
+
             query += " ORDER BY Questions.weight;";
 
             using (DbConnection conn = dl.Connect())
@@ -3063,6 +3073,12 @@ namespace SchoolGrades.DbClasses
                     " (SELECT idLesson from Lessons);";
                 cmd.ExecuteNonQuery();
 
+                // erase all the users
+                cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM Users" +
+                    ";";
+                cmd.ExecuteNonQuery();
+
                 // copy all the students' photo files that aren't already there or that have a newer date 
                 string query = "SELECT StudentsPhotos.photoPath" +
                 " FROM StudentsPhotos" +
@@ -3141,7 +3157,6 @@ namespace SchoolGrades.DbClasses
             // ???? StudentsTestsStudentsTests serve ???? se non serve, eliminare
             return Class.PathRestrictedApplication;
         }
-
         internal string CreateDemoDatabase(Class Class1, Class Class2)
         {
             DbCommand cmd;
@@ -3349,6 +3364,12 @@ namespace SchoolGrades.DbClasses
                 cmd.CommandText = query;
                 cmd.ExecuteNonQuery();
 
+                // erase all the users
+                cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM Users" +
+                    ";";
+                cmd.ExecuteNonQuery();
+
                 // rename every student left in the database according to the names found in the pictures' filenames
                 RenameStudentsNamesFromPictures(Class1, conn);
                 RenameStudentsNamesFromPictures(Class2, conn);
@@ -3374,7 +3395,91 @@ namespace SchoolGrades.DbClasses
             }
             return newDatabaseFullName;
         }
+        internal string NewDatabase()
+        {
+            DbCommand cmd;
 
+            string newDatabasePathName = Commons.PathDatabase;
+            if (!Directory.Exists(newDatabasePathName))
+                Directory.CreateDirectory(newDatabasePathName);
+
+            string newDatabaseFullName = newDatabasePathName +
+                "\\SchoolGradesNew.sqlite";
+
+            if (File.Exists(newDatabaseFullName))
+            {
+                if (System.Windows.Forms.MessageBox.Show("Il file " + newDatabaseFullName + " esiste già." +
+                    "\nDevo re-inizializzarlo (Sì) o non creare il database (No)?", "",
+                    System.Windows.Forms.MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question) == DialogResult.Yes)
+                {
+                    File.Delete(newDatabaseFullName);
+                }
+                else
+                    return "";
+            }
+            File.Copy(Commons.PathAndFileDatabase, newDatabaseFullName);
+
+            // local instance of a DataLayer to operate on a second database 
+            DataLayer.DataLayer newDatabaseDl = new DataLayer.DataLayer(newDatabaseFullName);
+
+            // erase all the data on all the tables
+            using (DbConnection conn = newDatabaseDl.Connect()) // connect to the new database, just copied
+            {
+                cmd = conn.CreateCommand();
+
+                // erase all the answers to questions
+                cmd.CommandText = "DELETE FROM Answers;" +
+                "DELETE FROM Students;" +
+                "DELETE FROM SchoolYears;" +
+                "DELETE FROM Schools;" +
+                "DELETE FROM Classes;" +
+                "DELETE FROM QuestionTypes;" +
+                "DELETE FROM Topics;" +
+                "DELETE FROM Subjects;" +
+                "DELETE FROM SchoolSubjects;" +
+                "DELETE FROM Images;" +
+                "DELETE FROM Questions;" +
+                "DELETE FROM Answers;" +
+                "DELETE FROM TestTypes;" +
+                "DELETE FROM Tests;" +
+                "DELETE FROM Classes_Tests;" +
+                "DELETE FROM Tags;" +
+                "DELETE FROM Tests_Tags;" +
+                "DELETE FROM Tests_Questions;" +
+                "DELETE FROM Questions_Tags;" +
+                "DELETE FROM Answers_Questions;" +
+                "DELETE FROM Classes_SchoolSubjects;" +
+                "DELETE FROM GradeCategories;" +
+                "DELETE FROM GradeTypes;" +
+                "DELETE FROM Grades;" +
+                "DELETE FROM Students_GradeTypes;" +
+                "DELETE FROM SchoolPeriodTypes;" +
+                "DELETE FROM SchoolPeriods;" +
+                "DELETE FROM StudentsAnswers;" +
+                "DELETE FROM StudentsQuestions;" +
+                "DELETE FROM StudentsTests;" +
+                "DELETE FROM StudentsPhotos;" +
+                "DELETE FROM StudentsTests_StudentsPhotos;" +
+                "DELETE FROM StudentsPhotos_Students;" +
+                "DELETE FROM Classes_Students;" +
+                "DELETE FROM Lessons;" +
+                "DELETE FROM Lessons_Topics;" +
+                "DELETE FROM Lessons_Images;" +
+                "DELETE FROM Classes_StartLinks;" +
+                "DELETE FROM Flags;" +
+                "DELETE FROM usersCategories;" +
+                "DELETE FROM Users;"; 
+                cmd.ExecuteNonQuery();
+
+                // compact the database 
+                cmd.CommandText = "VACUUM;";
+                cmd.ExecuteNonQuery();
+
+                cmd.Dispose();
+            }
+            return newDatabaseFullName;
+        }
         private void ChangeImagesPath(Class Class, DbConnection conn)
         {
             DbDataReader dRead;
